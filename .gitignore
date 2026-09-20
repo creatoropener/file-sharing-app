@@ -5,3 +5,8 @@ out/
 .env*.local
 *.log
 .vercel
+
+# Python orchestration artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
