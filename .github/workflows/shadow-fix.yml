@@ -19,6 +19,8 @@ jobs:
       issues: write
 
     env:
+      # Keep Python imports on the Actions runner from creating PR artifacts.
+      PYTHONDONTWRITEBYTECODE: '1'
       NEBIUS_PROJECT_ID: ${{ secrets.NEBIUS_PROJECT_ID }}
       NEBIUS_API_KEY: ${{ secrets.NEBIUS_API_KEY }}
       CONTREE_IMAGE: ${{ secrets.CONTREE_IMAGE }}
