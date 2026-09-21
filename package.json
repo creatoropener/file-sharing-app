@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "test": "node --test --test-reporter=tap tests/*.test.ts",
+    "test": "test": "tsx --test --test-reporter=tap tests/*.test.ts",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
