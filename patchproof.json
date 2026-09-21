@@ -1,1 +1,3 @@
-{"runtime": "node-typescript"}
+{
+  "runtime": "node-typescript"
+}
