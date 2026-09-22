@@ -1,4 +1,4 @@
-# Install PatchProof v0.6.0-rc.2
+# Install PatchProof v0.6.0-rc.3
 
 Copy the engine files into your target repository, preserving paths.
 Append __pycache__/ and *.py[cod] to its existing .gitignore.
