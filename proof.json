@@ -1,0 +1,200 @@
+{
+  "app_version": "0.6.0-rc.12",
+  "baseline": {
+    "command": "CI=1 npm test",
+    "existing_suite_passed": true,
+    "image": "be7c9d71-2292-44a4-a359-13c48a8c7182",
+    "output": "> file-sharing@0.1.0 test\n> tsx --test --test-reporter=tap tests/*.test.ts\n\nTAP version 13\n# Subtest: byte-sized values retain their B suffix\nok 1 - byte-sized values retain their B suffix\n  ---\n  duration_ms: 0.860512\n  ...\n# Subtest: byte-sized transfer rates retain their suffix\nok 2 - byte-sized transfer rates retain their suffix\n  ---\n  duration_ms: 0.161973\n  ...\n# Subtest: short and unknown ETA behavior remains intact\nok 3 - short and unknown ETA behavior remains intact\n  ---\n  duration_ms: 0.165178\n  ...\n1..3\n# tests 3\n# suites 0\n# pass 3\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 340.416142",
+    "tests_passed": 3
+  },
+  "candidates": [
+    {
+      "baseline_attempts": [
+        {
+          "attempt": 1,
+          "changes": [
+            {
+              "content": "// lib/crypto/stream-cipher.ts\nimport { encryptChunk, decryptChunk, generateIv } from './aes';\nimport { CHUNK_SIZE } from '@/types/transfer';\n\nexport interface CipherStreamOptions {\n  /** 12-byte IV seed; a random one is generated if omitted */\n  ivSeed?: Uint8Array;\n  /** Chunk size for internal buffering (default: 4MB) */\n  chunkSize?: number;\n}\n\nfunction ivFrom(seed: Uint8Array, index: number): Uint8Array {\n  const iv = new Uint8Array(12);\n  iv.set(seed);\n  new DataView(iv.buffer).setUint32(8, index);\n  return iv;\n}\n\n/**\n * Returns a TransformStream that encrypts a byte stream chunk-by-chunk\n * with AES-256-GCM. Each output chunk is [u32 plaintextLen][u32 ivIndex][ciphertext+tag],\n * so the decrypt side can self-synchronize without extra framing.\n *\n * Usage:\n *   const readable = file.stream().pipeThrough(await createEncryptionStream(key));\n *   for await (const cipherChunk of readable) { ... }\n */\nexport async function createEncryptionStream(\n  key: CryptoKey,\n  options: CipherStreamOptions = {},\n): Promise<TransformStream<Uint8Array, Uint8Array>> {\n  const chunkSize = options.chunkSize ?? CHUNK_SIZE;\n  const ivSeed = options.ivSeed ?? generateIv();\n  let pending: Uint8Array = new Uint8Array(0);\n  let index = 0;\n\n  return new TransformStream<Uint8Array, Uint8Array>({\n    async transform(chunk, controller) {\n      // Coalesce incoming bytes into chunkSize buffers\n      const merged = new Uint8Array(pending.length + chunk.byteLength);\n      merged.set(pending);\n      merged.set(chunk, pending.length);\n\n      let offset = 0;\n      while (merged.length - offset >= chunkSize) {\n        const plain = merged.subarray(offset, offset + chunkSize);\n        const iv = ivFrom(ivSeed, index++);\n        const cipher = await encryptChunk(key, iv, plain.slice().buffer as ArrayBuffer);\n\n        const frame = new Uint8Array(12 + 8 + cipher.byteLength);\n        frame.set(ivSeed, 0);\n        new DataView(frame.buffer).setUint32(12, plain.byteLength);\n        new DataView(frame.buffer).setUint32(12 + 4, index - 1);\n        frame.set(new Uint8Array(cipher), 12 + 8);\n        controller.enqueue(frame);\n        offset += chunkSize;\n      }\n      pending = merged.slice(offset);\n    },\n\n    async flush(controller) {\n      if (pending.length > 0) {\n        const iv = ivFrom(ivSeed, index++);\n        const cipher = await encryptChunk(key, iv, pending.slice().buffer as ArrayBuffer);\n        const frame = new Uint8Array(12 + 8 + cipher.byteLength);\n        frame.set(ivSeed, 0);\n        new DataView(frame.buffer).setUint32(12, pending.byteLength);\n        new DataView(frame.buffer).setUint32(12 + 4, index - 1);\n        frame.set(new Uint8Array(cipher), 12 + 8);\n        controller.enqueue(frame);\n      }\n    },\n  });\n}\n\n/**\n * Inverse of createEncryptionStream: reconstitutes framed ciphertext into\n * decrypted plaintext bytes.\n */\nexport async function createDecryptionStream(\n  key: CryptoKey,\n): Promise<TransformStream<Uint8Array, Uint8Array>> {\n  let pending: Uint8Array = new Uint8Array(0);\n\n  return new TransformStream<Uint8Array, Uint8Array>({\n    async transform(chunk, controller) {\n      const merged = new Uint8Array(pending.length + chunk.byteLength);\n      merged.set(pending);\n      merged.set(chunk, pending.length);\n\n      let offset = 0;\n      const view = () => new DataView(merged.buffer, merged.byteOffset + offset, merged.byteLength - offset);\n\n      while (merged.byteLength - offset >= 12 + 8) {\n        const ivSeed = merged.slice(offset, offset + 12);\n        const plainLen = view().getUint32(12);\n        const ivIndex = view().getUint32(12 + 4);\n        const frameLen = 12 + 8 + plainLen + 16; // 12-byte seed + 8-byte header + plaintext + 16-byte tag\n        if (merged.byteLength - offset < frameLen) break;\n\n        const iv = new Uint8Array(12);\n        iv.set(ivSeed);\n        new DataView(iv.buffer).setUint32(8, ivIndex);\n        const cipher = merged.slice(offset + 12 + 8, offset + frameLen).buffer as ArrayBuffer;\n        const plain = await decryptChunk(key, iv, cipher);\n        controller.enqueue(new Uint8Array(plain));\n        offset += frameLen;\n      }\n      pending = merged.slice(offset);\n    },\n\n    flush(controller) {\n      if (pending.byteLength > 0) throw new Error('Truncated ciphertext stream');\n      controller.terminate();\n    },\n  });\n}\n",
+              "path": "lib/crypto/stream-cipher.ts"
+            }
+          ],
+          "exit_code": 0,
+          "image": "3962d0e0-aaa2-4c1a-bec5-589ebd55852b",
+          "output": "> file-sharing@0.1.0 test\n> tsx --test --test-reporter=tap tests/*.test.ts\n\nTAP version 13\n# Subtest: byte-sized values retain their B suffix\nok 1 - byte-sized values retain their B suffix\n  ---\n  duration_ms: 1.555434\n  ...\n# Subtest: byte-sized transfer rates retain their suffix\nok 2 - byte-sized transfer rates retain their suffix\n  ---\n  duration_ms: 0.139249\n  ...\n# Subtest: short and unknown ETA behavior remains intact\nok 3 - short and unknown ETA behavior remains intact\n  ---\n  duration_ms: 0.162894\n  ...\n1..3\n# tests 3\n# suites 0\n# pass 3\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 264.643191",
+          "regression_test_present": false,
+          "tests_passed": 3
+        }
+      ],
+      "baseline_command": "CI=1 npm test",
+      "baseline_tests_passed": 3,
+      "candidate": 1,
+      "changed_files": [
+        "lib/crypto/stream-cipher.ts"
+      ],
+      "changed_lines": 30,
+      "command": "python /patchproof/typescript_check.py test_patchproof_issue_3.test.ts && /opt/patchproof/node/node_modules/.bin/tsx --test --test-reporter=tap test_patchproof_issue_3.test.ts",
+      "diff": "--- lib/crypto/stream-cipher.ts\n+++ lib/crypto/stream-cipher.ts\n@@ -47,10 +47,11 @@\n         const iv = ivFrom(ivSeed, index++);\n         const cipher = await encryptChunk(key, iv, plain.slice().buffer as ArrayBuffer);\n \n-        const frame = new Uint8Array(8 + cipher.byteLength);\n-        new DataView(frame.buffer).setUint32(0, plain.byteLength);\n-        new DataView(frame.buffer).setUint32(4, iv.buffer === undefined ? 0 : index - 1);\n-        frame.set(new Uint8Array(cipher), 8);\n+        const frame = new Uint8Array(12 + 8 + cipher.byteLength);\n+        frame.set(ivSeed, 0);\n+        new DataView(frame.buffer).setUint32(12, plain.byteLength);\n+        new DataView(frame.buffer).setUint32(12 + 4, index - 1);\n+        frame.set(new Uint8Array(cipher), 12 + 8);\n         controller.enqueue(frame);\n         offset += chunkSize;\n       }\n@@ -61,10 +62,11 @@\n       if (pending.length > 0) {\n         const iv = ivFrom(ivSeed, index++);\n         const cipher = await encryptChunk(key, iv, pending.slice().buffer as ArrayBuffer);\n-        const frame = new Uint8Array(8 + cipher.byteLength);\n-        new DataView(frame.buffer).setUint32(0, pending.byteLength);\n-        new DataView(frame.buffer).setUint32(4, index - 1);\n-        frame.set(new Uint8Array(cipher), 8);\n+        const frame = new Uint8Array(12 + 8 + cipher.byteLength);\n+        frame.set(ivSeed, 0);\n+        new DataView(frame.buffer).setUint32(12, pending.byteLength);\n+        new DataView(frame.buffer).setUint32(12 + 4, index - 1);\n+        frame.set(new Uint8Array(cipher), 12 + 8);\n         controller.enqueue(frame);\n       }\n     },\n@@ -89,15 +91,17 @@\n       let offset = 0;\n       const view = () => new DataView(merged.buffer, merged.byteOffset + offset, merged.byteLength - offset);\n \n-      while (merged.byteLength - offset >= 8) {\n-        const plainLen = view().getUint32(0);\n-        const ivIndex = view().getUint32(4);\n-        const frameLen = 8 + plainLen + 16; // 16-byte GCM tag\n+      while (merged.byteLength - offset >= 12 + 8) {\n+        const ivSeed = merged.slice(offset, offset + 12);\n+        const plainLen = view().getUint32(12);\n+        const ivIndex = view().getUint32(12 + 4);\n+        const frameLen = 12 + 8 + plainLen + 16; // 12-byte seed + 8-byte header + plaintext + 16-byte tag\n         if (merged.byteLength - offset < frameLen) break;\n \n         const iv = new Uint8Array(12);\n+        iv.set(ivSeed);\n         new DataView(iv.buffer).setUint32(8, ivIndex);\n-        const cipher = merged.slice(offset + 8, offset + frameLen).buffer as ArrayBuffer;\n+        const cipher = merged.slice(offset + 12 + 8, offset + frameLen).buffer as ArrayBuffer;\n         const plain = await decryptChunk(key, iv, cipher);\n         controller.enqueue(new Uint8Array(plain));\n         offset += frameLen;\n",
+      "duration_seconds": 18.624,
+      "exit_code": 0,
+      "generation_attempts": 1,
+      "image": "22627992-83f1-4f2f-b336-aa90f6f18a85",
+      "output": "PATCHPROOF_TYPESCRIPT_LINT=passed\nPATCHPROOF_TYPESCRIPT_CHECK=passed\nTAP version 13\n# Subtest: encryption/decryption round trip recovers original bytes including final partial chunk\nok 1 - encryption/decryption round trip recovers original bytes including final partial chunk\n  ---\n  duration_ms: 18.424224\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 377.974895\n\nPATCHPROOF_TEST_HASH_BEFORE=d9cb2bf79b45a14847ad6c33f0eaddf532a8b0c59cfbba33836287d0a11f5f22\nPATCHPROOF_TEST_HASH_AFTER=d9cb2bf79b45a14847ad6c33f0eaddf532a8b0c59cfbba33836287d0a11f5f22",
+      "passed": true,
+      "stage": "regression",
+      "strategy": "minimal targeted correction",
+      "summary": "Include the IV seed in each encrypted frame so the receiver can reconstruct per-chunk IVs.",
+      "test_protected": true,
+      "tests_passed": 1
+    },
+    {
+      "baseline_attempts": [
+        {
+          "attempt": 1,
+          "changes": [
+            {
+              "content": "// lib/crypto/stream-cipher.ts\nimport { encryptChunk, decryptChunk, generateIv } from './aes';\nimport { CHUNK_SIZE } from '@/types/transfer';\n\nexport interface CipherStreamOptions {\n  /** 12-byte IV seed; a random one is generated if omitted */\n  ivSeed?: Uint8Array;\n  /** Chunk size for internal buffering (default: 4MB) */\n  chunkSize?: number;\n}\n\nfunction ivFrom(seed: Uint8Array, index: number): Uint8Array {\n  const iv = new Uint8Array(12);\n  iv.set(seed);\n  new DataView(iv.buffer).setUint32(8, index);\n  return iv;\n}\n\n/**\n * Returns a TransformStream that encrypts a byte stream chunk-by-chunk\n * with AES-256-GCM. Each output chunk is [u32 plaintextLen][u32 ivIndex][ciphertext+tag],\n * so the decrypt side can self-synchronize without extra framing.\n *\n * Usage:\n *   const readable = file.stream().pipeThrough(await createEncryptionStream(key));\n *   for await (const cipherChunk of readable) { ... }\n */\nexport async function createEncryptionStream(\n  key: CryptoKey,\n  options: CipherStreamOptions = {},\n): Promise<TransformStream<Uint8Array, Uint8Array>> {\n  const chunkSize = options.chunkSize ?? CHUNK_SIZE;\n  const ivSeed = options.ivSeed ?? generateIv();\n  let pending: Uint8Array = new Uint8Array(0);\n  let index = 0;\n\n  return new TransformStream<Uint8Array, Uint8Array>({\n    async transform(chunk, controller) {\n      // Coalesce incoming bytes into chunkSize buffers\n      const merged = new Uint8Array(pending.length + chunk.byteLength);\n      merged.set(pending);\n      merged.set(chunk, pending.length);\n\n      let offset = 0;\n      while (merged.length - offset >= chunkSize) {\n        const plain = merged.subarray(offset, offset + chunkSize);\n        const iv = ivFrom(ivSeed, index++);\n        const cipher = await encryptChunk(key, iv, plain.slice().buffer as ArrayBuffer);\n\n        const frame = new Uint8Array(20 + cipher.byteLength);\n        frame.set(ivSeed, 0);\n        new DataView(frame.buffer).setUint32(12, plain.byteLength);\n        new DataView(frame.buffer).setUint32(16, index - 1);\n        frame.set(new Uint8Array(cipher), 20);\n        controller.enqueue(frame);\n        offset += chunkSize;\n      }\n      pending = merged.slice(offset);\n    },\n\n    async flush(controller) {\n      if (pending.length > 0) {\n        const iv = ivFrom(ivSeed, index++);\n        const cipher = await encryptChunk(key, iv, pending.slice().buffer as ArrayBuffer);\n        const frame = new Uint8Array(8 + cipher.byteLength);\n        new DataView(frame.buffer).setUint32(0, pending.byteLength);\n        new DataView(frame.buffer).setUint32(4, index - 1);\n        frame.set(new Uint8Array(cipher), 8);\n        controller.enqueue(frame);\n      }\n    },\n  });\n}\n\n/**\n * Inverse of createEncryptionStream: reconstitutes framed ciphertext into\n * decrypted plaintext bytes.\n */\nexport async function createDecryptionStream(\n  key: CryptoKey,\n): Promise<TransformStream<Uint8Array, Uint8Array>> {\n  let pending: Uint8Array = new Uint8Array(0);\n\n  return new TransformStream<Uint8Array, Uint8Array>({\n    async transform(chunk, controller) {\n      const merged = new Uint8Array(pending.length + chunk.byteLength);\n      merged.set(pending);\n      merged.set(chunk, pending.length);\n\n      let offset = 0;\n      const view = () => new DataView(merged.buffer, merged.byteOffset + offset, merged.byteLength - offset);\n\n      while (merged.byteLength - offset >= 8) {\n        const plainLen = view().getUint32(0);\n        const ivIndex = view().getUint32(4);\n        const frameLen = 8 + plainLen + 16; // 16-byte GCM tag\n        if (merged.byteLength - offset < frameLen) break;\n\n        const iv = new Uint8Array(12);\n        new DataView(iv.buffer).setUint32(8, ivIndex);\n        const cipher = merged.slice(offset + 8, offset + frameLen).buffer as ArrayBuffer;\n        const plain = await decryptChunk(key, iv, cipher);\n        controller.enqueue(new Uint8Array(plain));\n        offset += frameLen;\n      }\n      pending = merged.slice(offset);\n    },\n\n    flush(controller) {\n      if (pending.byteLength > 0) throw new Error('Truncated ciphertext stream');\n      controller.terminate();\n    },\n  });\n}\n",
+              "path": "lib/crypto/stream-cipher.ts"
+            }
+          ],
+          "exit_code": 0,
+          "image": "06ffd9b8-c09c-4917-ae0b-7cdf45ffe4f7",
+          "output": "> file-sharing@0.1.0 test\n> tsx --test --test-reporter=tap tests/*.test.ts\n\nTAP version 13\n# Subtest: byte-sized values retain their B suffix\nok 1 - byte-sized values retain their B suffix\n  ---\n  duration_ms: 0.774362\n  ...\n# Subtest: byte-sized transfer rates retain their suffix\nok 2 - byte-sized transfer rates retain their suffix\n  ---\n  duration_ms: 0.171728\n  ...\n# Subtest: short and unknown ETA behavior remains intact\nok 3 - short and unknown ETA behavior remains intact\n  ---\n  duration_ms: 0.168873\n  ...\n1..3\n# tests 3\n# suites 0\n# pass 3\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 274.061838",
+          "regression_test_present": false,
+          "tests_passed": 3
+        }
+      ],
+      "baseline_command": "CI=1 npm test",
+      "baseline_tests_passed": 3,
+      "candidate": 2,
+      "changed_files": [
+        "lib/crypto/stream-cipher.ts"
+      ],
+      "changed_lines": 9,
+      "command": "python /patchproof/typescript_check.py test_patchproof_issue_3.test.ts && /opt/patchproof/node/node_modules/.bin/tsx --test --test-reporter=tap test_patchproof_issue_3.test.ts",
+      "diff": "--- lib/crypto/stream-cipher.ts\n+++ lib/crypto/stream-cipher.ts\n@@ -47,10 +47,11 @@\n         const iv = ivFrom(ivSeed, index++);\n         const cipher = await encryptChunk(key, iv, plain.slice().buffer as ArrayBuffer);\n \n-        const frame = new Uint8Array(8 + cipher.byteLength);\n-        new DataView(frame.buffer).setUint32(0, plain.byteLength);\n-        new DataView(frame.buffer).setUint32(4, iv.buffer === undefined ? 0 : index - 1);\n-        frame.set(new Uint8Array(cipher), 8);\n+        const frame = new Uint8Array(20 + cipher.byteLength);\n+        frame.set(ivSeed, 0);\n+        new DataView(frame.buffer).setUint32(12, plain.byteLength);\n+        new DataView(frame.buffer).setUint32(16, index - 1);\n+        frame.set(new Uint8Array(cipher), 20);\n         controller.enqueue(frame);\n         offset += chunkSize;\n       }\n",
+      "duration_seconds": 11.361,
+      "exit_code": 1,
+      "generation_attempts": 1,
+      "image": "4bdfd717-2e61-470b-a485-d8bca7a7966a",
+      "output": "PATCHPROOF_TYPESCRIPT_LINT=passed\nPATCHPROOF_TYPESCRIPT_CHECK=passed\nTAP version 13\n# Subtest: encryption/decryption round trip recovers original bytes including final partial chunk\nnot ok 1 - encryption/decryption round trip recovers original bytes including final partial chunk\n  ---\n  duration_ms: 17.94218\n  location: '/workspace/repo/test_patchproof_issue_3.test.ts:2:1'\n  failureType: 'testCodeFailure'\n  error: |-\n    Got unwanted rejection.\n    Actual message: \"The operation failed for an operation-specific reason\"\n  code: 'ERR_ASSERTION'\n  name: 'AssertionError'\n  actual:\n  operator: 'doesNotReject'\n  stack: |-\n    async TestContext.<anonymous> (/workspace/repo/test_patchproof_issue_3.test.ts:5:3)\n    async Test.run (node:internal/test_runner/test:797:9)\n    async Test.processPendingSubtests (node:internal/test_runner/test:526:7)\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 372.180098\n\nPATCHPROOF_TEST_HASH_BEFORE=d9cb2bf79b45a14847ad6c33f0eaddf532a8b0c59cfbba33836287d0a11f5f22\nPATCHPROOF_TEST_HASH_AFTER=d9cb2bf79b45a14847ad6c33f0eaddf532a8b0c59cfbba33836287d0a11f5f22",
+      "passed": false,
+      "stage": "regression",
+      "strategy": "defensive edge-case correction",
+      "summary": "Include the IV seed in the encrypted stream header so the receiver can reconstruct per-chunk IVs.",
+      "test_protected": true,
+      "tests_passed": 0
+    },
+    {
+      "baseline_attempts": [
+        {
+          "attempt": 1,
+          "changes": [
+            {
+              "content": "// lib/crypto/stream-cipher.ts\nimport { encryptChunk, decryptChunk, generateIv } from './aes';\nimport { CHUNK_SIZE } from '@/types/transfer';\n\nexport interface CipherStreamOptions {\n  /** 12-byte IV seed; a random one is generated if omitted */\n  ivSeed?: Uint8Array;\n  /** Chunk size for internal buffering (default: 4MB) */\n  chunkSize?: number;\n}\n\nfunction ivFrom(seed: Uint8Array, index: number): Uint8Array {\n  const iv = new Uint8Array(12);\n  iv.set(seed);\n  new DataView(iv.buffer).setUint32(8, index);\n  return iv;\n}\n\n/**\n * Returns a TransformStream that encrypts a byte stream chunk-by-chunk\n * with AES-256-GCM. Each output chunk is [u32 plaintextLen][u32 ivIndex][ciphertext+tag],\n * so the decrypt side can self-synchronize without extra framing.\n *\n * Usage:\n *   const readable = file.stream().pipeThrough(await createEncryptionStream(key));\n *   for await (const cipherChunk of readable) { ... }\n */\nexport async function createEncryptionStream(\n  key: CryptoKey,\n  options: CipherStreamOptions = {},\n): Promise<TransformStream<Uint8Array, Uint8Array>> {\n  const chunkSize = options.chunkSize ?? CHUNK_SIZE;\n  const ivSeed = options.ivSeed ?? generateIv();\n  let pending: Uint8Array = new Uint8Array(0);\n  let index = 0;\n\n  return new TransformStream<Uint8Array, Uint8Array>({\n    async transform(chunk, controller) {\n      // Coalesce incoming bytes into chunkSize buffers\n      const merged = new Uint8Array(pending.length + chunk.byteLength);\n      merged.set(pending);\n      merged.set(chunk, pending.length);\n\n      let offset = 0;\n      while (merged.length - offset >= chunkSize) {\n        const plain = merged.subarray(offset, offset + chunkSize);\n        const iv = ivFrom(ivSeed, index++);\n        const cipher = await encryptChunk(key, iv, plain.slice().buffer as ArrayBuffer);\n\n        const frame = new Uint8Array(12 + 8 + cipher.byteLength);\n        frame.set(ivSeed, 0);\n        new DataView(frame.buffer).setUint32(12, plain.byteLength);\n        new DataView(frame.buffer).setUint32(12 + 4, iv.buffer === undefined ? 0 : index - 1);\n        frame.set(new Uint8Array(cipher), 12 + 8);\n        controller.enqueue(frame);\n        offset += chunkSize;\n      }\n      pending = merged.slice(offset);\n    },\n\n    async flush(controller) {\n      if (pending.length > 0) {\n        const iv = ivFrom(ivSeed, index++);\n        const cipher = await encryptChunk(key, iv, pending.slice().buffer as ArrayBuffer);\n        const frame = new Uint8Array(8 + cipher.byteLength);\n        new DataView(frame.buffer).setUint32(0, pending.byteLength);\n        new DataView(frame.buffer).setUint32(4, index - 1);\n        frame.set(new Uint8Array(cipher), 8);\n        controller.enqueue(frame);\n      }\n    },\n  });\n}\n\n/**\n * Inverse of createEncryptionStream: reconstitutes framed ciphertext into\n * decrypted plaintext bytes.\n */\nexport async function createDecryptionStream(\n  key: CryptoKey,\n): Promise<TransformStream<Uint8Array, Uint8Array>> {\n  let pending: Uint8Array = new Uint8Array(0);\n\n  return new TransformStream<Uint8Array, Uint8Array>({\n    async transform(chunk, controller) {\n      const merged = new Uint8Array(pending.length + chunk.byteLength);\n      merged.set(pending);\n      merged.set(chunk, pending.length);\n\n      let offset = 0;\n      const view = () => new DataView(merged.buffer, merged.byteOffset + offset, merged.byteLength - offset);\n\n      while (merged.byteLength - offset >= 8) {\n        const plainLen = view().getUint32(0);\n        const ivIndex = view().getUint32(4);\n        const frameLen = 8 + plainLen + 16; // 16-byte GCM tag\n        if (merged.byteLength - offset < frameLen) break;\n\n        const iv = new Uint8Array(12);\n        new DataView(iv.buffer).setUint32(8, ivIndex);\n        const cipher = merged.slice(offset + 8, offset + frameLen).buffer as ArrayBuffer;\n        const plain = await decryptChunk(key, iv, cipher);\n        controller.enqueue(new Uint8Array(plain));\n        offset += frameLen;\n      }\n      pending = merged.slice(offset);\n    },\n\n    flush(controller) {\n      if (pending.byteLength > 0) throw new Error('Truncated ciphertext stream');\n      controller.terminate();\n    },\n  });\n}\n",
+              "path": "lib/crypto/stream-cipher.ts"
+            }
+          ],
+          "exit_code": 0,
+          "image": "7dc7f77a-64d8-47e8-9930-2cbd2c04202e",
+          "output": "> file-sharing@0.1.0 test\n> tsx --test --test-reporter=tap tests/*.test.ts\n\nTAP version 13\n# Subtest: byte-sized values retain their B suffix\nok 1 - byte-sized values retain their B suffix\n  ---\n  duration_ms: 1.62553\n  ...\n# Subtest: byte-sized transfer rates retain their suffix\nok 2 - byte-sized transfer rates retain their suffix\n  ---\n  duration_ms: 0.146029\n  ...\n# Subtest: short and unknown ETA behavior remains intact\nok 3 - short and unknown ETA behavior remains intact\n  ---\n  duration_ms: 0.163265\n  ...\n1..3\n# tests 3\n# suites 0\n# pass 3\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 323.824399",
+          "regression_test_present": false,
+          "tests_passed": 3
+        }
+      ],
+      "baseline_command": "CI=1 npm test",
+      "baseline_tests_passed": 3,
+      "candidate": 3,
+      "changed_files": [
+        "lib/crypto/stream-cipher.ts"
+      ],
+      "changed_lines": 9,
+      "command": "python /patchproof/typescript_check.py test_patchproof_issue_3.test.ts && /opt/patchproof/node/node_modules/.bin/tsx --test --test-reporter=tap test_patchproof_issue_3.test.ts",
+      "diff": "--- lib/crypto/stream-cipher.ts\n+++ lib/crypto/stream-cipher.ts\n@@ -47,10 +47,11 @@\n         const iv = ivFrom(ivSeed, index++);\n         const cipher = await encryptChunk(key, iv, plain.slice().buffer as ArrayBuffer);\n \n-        const frame = new Uint8Array(8 + cipher.byteLength);\n-        new DataView(frame.buffer).setUint32(0, plain.byteLength);\n-        new DataView(frame.buffer).setUint32(4, iv.buffer === undefined ? 0 : index - 1);\n-        frame.set(new Uint8Array(cipher), 8);\n+        const frame = new Uint8Array(12 + 8 + cipher.byteLength);\n+        frame.set(ivSeed, 0);\n+        new DataView(frame.buffer).setUint32(12, plain.byteLength);\n+        new DataView(frame.buffer).setUint32(12 + 4, iv.buffer === undefined ? 0 : index - 1);\n+        frame.set(new Uint8Array(cipher), 12 + 8);\n         controller.enqueue(frame);\n         offset += chunkSize;\n       }\n",
+      "duration_seconds": 11.508,
+      "exit_code": 1,
+      "generation_attempts": 1,
+      "image": "d6d3ef71-9e6e-4265-a24c-150d5fbc1ba4",
+      "output": "PATCHPROOF_TYPESCRIPT_LINT=passed\nPATCHPROOF_TYPESCRIPT_CHECK=passed\nTAP version 13\n# Subtest: encryption/decryption round trip recovers original bytes including final partial chunk\nnot ok 1 - encryption/decryption round trip recovers original bytes including final partial chunk\n  ---\n  duration_ms: 20.755372\n  location: '/workspace/repo/test_patchproof_issue_3.test.ts:2:1'\n  failureType: 'testCodeFailure'\n  error: |-\n    Got unwanted rejection.\n    Actual message: \"The operation failed for an operation-specific reason\"\n  code: 'ERR_ASSERTION'\n  name: 'AssertionError'\n  actual:\n  operator: 'doesNotReject'\n  stack: |-\n    async TestContext.<anonymous> (/workspace/repo/test_patchproof_issue_3.test.ts:5:3)\n    async Test.run (node:internal/test_runner/test:797:9)\n    async Test.processPendingSubtests (node:internal/test_runner/test:526:7)\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 373.546177\n\nPATCHPROOF_TEST_HASH_BEFORE=d9cb2bf79b45a14847ad6c33f0eaddf532a8b0c59cfbba33836287d0a11f5f22\nPATCHPROOF_TEST_HASH_AFTER=d9cb2bf79b45a14847ad6c33f0eaddf532a8b0c59cfbba33836287d0a11f5f22",
+      "passed": false,
+      "stage": "regression",
+      "strategy": "maintainable behavior-preserving correction",
+      "summary": "Include the IV seed in the encryption stream frame so the decoder can reconstruct matching IVs.",
+      "test_protected": true,
+      "tests_passed": 0
+    }
+  ],
+  "clean_replay": {
+    "command": "CI=1 npm test && echo PATCHPROOF_REGRESSION_START && python /patchproof/typescript_check.py test_patchproof_issue_3.test.ts && /opt/patchproof/node/node_modules/.bin/tsx --test --test-reporter=tap test_patchproof_issue_3.test.ts",
+    "exit_code": 0,
+    "image": "ad1235cc-0286-488d-9dd4-555995598f29",
+    "output": "> file-sharing@0.1.0 test\n> tsx --test --test-reporter=tap tests/*.test.ts\n\nTAP version 13\n# Subtest: byte-sized values retain their B suffix\nok 1 - byte-sized values retain their B suffix\n  ---\n  duration_ms: 0.870326\n  ...\n# Subtest: byte-sized transfer rates retain their suffix\nok 2 - byte-sized transfer rates retain their suffix\n  ---\n  duration_ms: 0.185889\n  ...\n# Subtest: short and unknown ETA behavior remains intact\nok 3 - short and unknown ETA behavior remains intact\n  ---\n  duration_ms: 0.16661\n  ...\n1..3\n# tests 3\n# suites 0\n# pass 3\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 337.411543\nPATCHPROOF_REGRESSION_START\nPATCHPROOF_TYPESCRIPT_LINT=passed\nPATCHPROOF_TYPESCRIPT_CHECK=passed\nTAP version 13\n# Subtest: encryption/decryption round trip recovers original bytes including final partial chunk\nok 1 - encryption/decryption round trip recovers original bytes including final partial chunk\n  ---\n  duration_ms: 18.82799\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 366.892151\n\nPATCHPROOF_TEST_HASH_BEFORE=d9cb2bf79b45a14847ad6c33f0eaddf532a8b0c59cfbba33836287d0a11f5f22\nPATCHPROOF_TEST_HASH_AFTER=d9cb2bf79b45a14847ad6c33f0eaddf532a8b0c59cfbba33836287d0a11f5f22",
+    "passed": true,
+    "test_protected": true,
+    "tests_passed": 1
+  },
+  "issue": {
+    "number": 3,
+    "title": "P2P/stream transfer cannot be decrypted \u2014 IV seed is never sent to the receiver",
+    "url": "https://github.com/creatoropener/file-sharing-app/issues/3"
+  },
+  "model": "nvidia/nemotron-3-super-120b-a12b",
+  "regression_test": {
+    "attempts": [
+      {
+        "attempt": 1,
+        "classification": "accepted assertion failure reproduced the issue",
+        "content": "import test from 'node:test'; import assert from 'node:assert/strict'; import { readableFromBytes, collectBytes } from 'file:///patchproof/web_streams.mjs'; import { createEncryptionStream, createDecryptionStream } from '@/lib/crypto/stream-cipher'; import { generateSessionKey } from '@/lib/crypto/aes';\ntest('encryption/decryption round trip recovers original bytes including final partial chunk', async () => {\n  const original = new Uint8Array([1, 2, 3, 4, 5]);\n  let recovered: Uint8Array | undefined;\n  await assert.doesNotReject(async () => {\n    const { key } = await generateSessionKey();\n    const forward = await createEncryptionStream(key);\n    const encoded = await collectBytes(readableFromBytes(original, 2).pipeThrough(forward));\n    const inverse = await createDecryptionStream(key);\n    recovered = await collectBytes(readableFromBytes(encoded, 2).pipeThrough(inverse));\n  });\n  assert.deepStrictEqual(recovered, original);\n});\n",
+        "exit_code": 1,
+        "image": "7b35b861-e73b-4c72-9b94-7822f5a0c643",
+        "output": "PATCHPROOF_TYPESCRIPT_LINT=passed\nPATCHPROOF_TYPESCRIPT_CHECK=passed\nTAP version 13\n# Subtest: encryption/decryption round trip recovers original bytes including final partial chunk\nnot ok 1 - encryption/decryption round trip recovers original bytes including final partial chunk\n  ---\n  duration_ms: 17.928099\n  location: '/workspace/repo/test_patchproof_issue_3.test.ts:2:1'\n  failureType: 'testCodeFailure'\n  error: |-\n    Got unwanted rejection.\n    Actual message: \"The operation failed for an operation-specific reason\"\n  code: 'ERR_ASSERTION'\n  name: 'AssertionError'\n  actual:\n  operator: 'doesNotReject'\n  stack: |-\n    async TestContext.<anonymous> (/workspace/repo/test_patchproof_issue_3.test.ts:5:3)\n    async Test.run (node:internal/test_runner/test:797:9)\n    async Test.processPendingSubtests (node:internal/test_runner/test:526:7)\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 362.719798\n\nPATCHPROOF_TEST_HASH_BEFORE=d9cb2bf79b45a14847ad6c33f0eaddf532a8b0c59cfbba33836287d0a11f5f22\nPATCHPROOF_TEST_HASH_AFTER=d9cb2bf79b45a14847ad6c33f0eaddf532a8b0c59cfbba33836287d0a11f5f22",
+        "protected": true,
+        "rationale": "Test exercises the full encrypt/decrypt stream round\u2011trip with a small fixture and a non\u2011multiple chunk size to trigger a final partial chunk. It asserts the recovered bytes equal the original, which fails on the unfixed revision due to missing IV seed in the frame format.",
+        "sha256": "d9cb2bf79b45a14847ad6c33f0eaddf532a8b0c59cfbba33836287d0a11f5f22"
+      }
+    ],
+    "content": "import test from 'node:test'; import assert from 'node:assert/strict'; import { readableFromBytes, collectBytes } from 'file:///patchproof/web_streams.mjs'; import { createEncryptionStream, createDecryptionStream } from '@/lib/crypto/stream-cipher'; import { generateSessionKey } from '@/lib/crypto/aes';\ntest('encryption/decryption round trip recovers original bytes including final partial chunk', async () => {\n  const original = new Uint8Array([1, 2, 3, 4, 5]);\n  let recovered: Uint8Array | undefined;\n  await assert.doesNotReject(async () => {\n    const { key } = await generateSessionKey();\n    const forward = await createEncryptionStream(key);\n    const encoded = await collectBytes(readableFromBytes(original, 2).pipeThrough(forward));\n    const inverse = await createDecryptionStream(key);\n    recovered = await collectBytes(readableFromBytes(encoded, 2).pipeThrough(inverse));\n  });\n  assert.deepStrictEqual(recovered, original);\n});\n",
+    "created_before_candidates": true,
+    "failed_before_fix": true,
+    "generation_attempts": [
+      {
+        "attempt": 1,
+        "execution_attempt": 1,
+        "sha256": "d9cb2bf79b45a14847ad6c33f0eaddf532a8b0c59cfbba33836287d0a11f5f22",
+        "status": "validated"
+      }
+    ],
+    "path": "test_patchproof_issue_3.test.ts",
+    "pre_fix_exit_code": 1,
+    "pre_fix_image": "7b35b861-e73b-4c72-9b94-7822f5a0c643",
+    "pre_fix_output": "PATCHPROOF_TYPESCRIPT_LINT=passed\nPATCHPROOF_TYPESCRIPT_CHECK=passed\nTAP version 13\n# Subtest: encryption/decryption round trip recovers original bytes including final partial chunk\nnot ok 1 - encryption/decryption round trip recovers original bytes including final partial chunk\n  ---\n  duration_ms: 17.928099\n  location: '/workspace/repo/test_patchproof_issue_3.test.ts:2:1'\n  failureType: 'testCodeFailure'\n  error: |-\n    Got unwanted rejection.\n    Actual message: \"The operation failed for an operation-specific reason\"\n  code: 'ERR_ASSERTION'\n  name: 'AssertionError'\n  actual:\n  operator: 'doesNotReject'\n  stack: |-\n    async TestContext.<anonymous> (/workspace/repo/test_patchproof_issue_3.test.ts:5:3)\n    async Test.run (node:internal/test_runner/test:797:9)\n    async Test.processPendingSubtests (node:internal/test_runner/test:526:7)\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 362.719798\n\nPATCHPROOF_TEST_HASH_BEFORE=d9cb2bf79b45a14847ad6c33f0eaddf532a8b0c59cfbba33836287d0a11f5f22\nPATCHPROOF_TEST_HASH_AFTER=d9cb2bf79b45a14847ad6c33f0eaddf532a8b0c59cfbba33836287d0a11f5f22",
+    "protected": true,
+    "rationale": "Test exercises the full encrypt/decrypt stream round\u2011trip with a small fixture and a non\u2011multiple chunk size to trigger a final partial chunk. It asserts the recovered bytes equal the original, which fails on the unfixed revision due to missing IV seed in the frame format.",
+    "reproduction_classification": "accepted assertion failure reproduced the issue",
+    "sha256": "d9cb2bf79b45a14847ad6c33f0eaddf532a8b0c59cfbba33836287d0a11f5f22"
+  },
+  "runtime": {
+    "application_languages": [
+      "JavaScript",
+      "TypeScript"
+    ],
+    "display_name": "Node.js / TypeScript (tsx)",
+    "id": "node-typescript",
+    "image_env": "CONTREE_IMAGE_NODE_TYPESCRIPT",
+    "test_runtime": "node-test"
+  },
+  "sandbox": {
+    "base_image": "cb6af2c4-3a09-435d-8e2c-008ec33a8d59",
+    "provider": "Nebius Token Factory"
+  },
+  "schema_version": "0.6",
+  "stage": "completed",
+  "verdict": "verified",
+  "winner": {
+    "candidate": 1,
+    "changed_files": [
+      "lib/crypto/stream-cipher.ts"
+    ],
+    "selection": "fewest changed files, then fewest changed lines, then duration",
+    "summary": "Include the IV seed in each encrypted frame so the receiver can reconstruct per-chunk IVs."
+  }
+}
