@@ -35,7 +35,7 @@ jobs:
       CONTREE_IMAGE_GO: ${{ secrets.CONTREE_IMAGE_GO }}
       CONTREE_IMAGE_RUST: ${{ secrets.CONTREE_IMAGE_RUST }}
       NEBIUS_MODEL: ${{ vars.NEBIUS_MODEL || secrets.NEBIUS_MODEL }}
-      NEBIUS_MAX_TOKENS: ${{ vars.NEBIUS_MAX_TOKENS || '12000' }}
+      NEBIUS_MAX_TOKENS: ${{ vars.NEBIUS_MAX_TOKENS || '32000' }}
 
     steps:
       - name: Comment on issue
