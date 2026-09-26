@@ -47,10 +47,11 @@ export async function createEncryptionStream(
         const iv = ivFrom(ivSeed, index++);
         const cipher = await encryptChunk(key, iv, plain.slice().buffer as ArrayBuffer);
 
-        const frame = new Uint8Array(8 + cipher.byteLength);
-        new DataView(frame.buffer).setUint32(0, plain.byteLength);
-        new DataView(frame.buffer).setUint32(4, iv.buffer === undefined ? 0 : index - 1);
-        frame.set(new Uint8Array(cipher), 8);
+        const frame = new Uint8Array(12 + 8 + cipher.byteLength);
+        frame.set(ivSeed, 0);
+        new DataView(frame.buffer).setUint32(12, plain.byteLength);
+        new DataView(frame.buffer).setUint32(12 + 4, index - 1);
+        frame.set(new Uint8Array(cipher), 12 + 8);
         controller.enqueue(frame);
         offset += chunkSize;
       }
@@ -61,10 +62,11 @@ export async function createEncryptionStream(
       if (pending.length > 0) {
         const iv = ivFrom(ivSeed, index++);
         const cipher = await encryptChunk(key, iv, pending.slice().buffer as ArrayBuffer);
-        const frame = new Uint8Array(8 + cipher.byteLength);
-        new DataView(frame.buffer).setUint32(0, pending.byteLength);
-        new DataView(frame.buffer).setUint32(4, index - 1);
-        frame.set(new Uint8Array(cipher), 8);
+        const frame = new Uint8Array(12 + 8 + cipher.byteLength);
+        frame.set(ivSeed, 0);
+        new DataView(frame.buffer).setUint32(12, pending.byteLength);
+        new DataView(frame.buffer).setUint32(12 + 4, index - 1);
+        frame.set(new Uint8Array(cipher), 12 + 8);
         controller.enqueue(frame);
       }
     },
@@ -89,15 +91,17 @@ export async function createDecryptionStream(
       let offset = 0;
       const view = () => new DataView(merged.buffer, merged.byteOffset + offset, merged.byteLength - offset);
 
-      while (merged.byteLength - offset >= 8) {
-        const plainLen = view().getUint32(0);
-        const ivIndex = view().getUint32(4);
-        const frameLen = 8 + plainLen + 16; // 16-byte GCM tag
+      while (merged.byteLength - offset >= 12 + 8) {
+        const ivSeed = merged.slice(offset, offset + 12);
+        const plainLen = view().getUint32(12);
+        const ivIndex = view().getUint32(12 + 4);
+        const frameLen = 12 + 8 + plainLen + 16; // 12-byte seed + 8-byte header + plaintext + 16-byte tag
         if (merged.byteLength - offset < frameLen) break;
 
         const iv = new Uint8Array(12);
+        iv.set(ivSeed);
         new DataView(iv.buffer).setUint32(8, ivIndex);
-        const cipher = merged.slice(offset + 8, offset + frameLen).buffer as ArrayBuffer;
+        const cipher = merged.slice(offset + 12 + 8, offset + frameLen).buffer as ArrayBuffer;
         const plain = await decryptChunk(key, iv, cipher);
         controller.enqueue(new Uint8Array(plain));
         offset += frameLen;
