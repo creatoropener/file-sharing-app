@@ -23,7 +23,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: creatoropener/shadow-patch@v0.6.0-rc.38
+      - uses: creatoropener/shadow-patch@v0.6.0-rc.39
         with:
           nebius-api-key: ${{ secrets.NEBIUS_API_KEY }}
           nebius-project-id: ${{ secrets.NEBIUS_PROJECT_ID }}
@@ -32,5 +32,5 @@ jobs:
           # The specification profile is how both development cases verified (the model writes the
           # examples quoted from the issue, the engine compiles the test). If it stops with
           # needs_specification, change this one line to freeform and label the issue again.
-          verifier-profile: freeform
+          verifier-profile: spec
           image-node-typescript: ${{ secrets.CONTREE_IMAGE_NODE_TYPESCRIPT }}
