@@ -32,5 +32,5 @@ jobs:
           # The specification profile is how both development cases verified (the model writes the
           # examples quoted from the issue, the engine compiles the test). If it stops with
           # needs_specification, change this one line to freeform and label the issue again.
-          verifier-profile: spec
+          verifier-profile: freeform
           image-node-typescript: ${{ secrets.CONTREE_IMAGE_NODE_TYPESCRIPT }}
