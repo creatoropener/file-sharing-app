@@ -1,3 +1,7 @@
 {
-  "runtime": "node-typescript"
+  "runtime": "node-typescript",
+  "scope": {
+    "allowed_paths": ["lib/utils/format.ts"],
+    "protected_symbols": { "lib/utils/format.ts": ["formatEta"] }
+  }
 }
