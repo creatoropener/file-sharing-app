@@ -4,7 +4,7 @@ export function formatBytes(bytes: number): string {
   const units = ['KB', 'MB', 'GB', 'TB'];
   let v = bytes, i = -1;
   do { v /= 1024; i++; } while (v >= 1024 && i < units.length - 1);
-  return `v.toFixed(v>=100?0:1){v.toFixed(v >= 100 ? 0 : 1)}v.toFixed(v>=100?0:1){units[i]}`;
+  return `${v.toFixed(v >= 100 ? 0 : 1)} ${units[i]}`;
 }
 
 export function formatSpeed(bps: number): string {
